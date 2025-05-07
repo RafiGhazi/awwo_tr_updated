@@ -1,49 +1,97 @@
+/*********
+  Rui Santos & Sara Santos - Random Nerd Tutorials
+  Complete instructions at https://RandomNerdTutorials.com/esp8266-nodemcu-firebase-realtime-database/
+*********/
+
 #include <Arduino.h>
+#include <Wire.h>
+#include <SPI.h>
 #include <ESP8266WiFi.h>
+#include <FirebaseESP8266.h>
+#include <WiFiClientSecure.h>
+#include <Adafruit_PN532.h>
+#include <Ticker.h>
 
 
-
-
+// Network and Firebase credentials
 #define WIFI_SSID "Ghajoy"
-#define WIFI_PASSWORD "babikluyak"
+#define WIFI_PASSWORD "ghajoy2327"
+
+#define Web_API_KEY "AIzaSyCiZ0bpKHxDFmzquUa6VuzHXn5uAlrFHVo"
+#define DATABASE_URL "https://iot-doorlock-65509-default-rtdb.asia-southeast1.firebasedatabase.app/"
+#define USER_EMAIL "test@test.com"
+#define USER_PASS "test123"
+
+#define PN532_irq 0
+#define PN532_reset -1
+
+void processData(AsyncResult &aResult);
+UserAuth user_auth(Web_API_KEY, USER_EMAIL, USER_PASS);
+
+// Firebase components
+FirebaseApp app;
+WiFiClientSecure ssl_client;
+using AsyncClient = AsyncClientClass;
+AsyncClient aClient(ssl_client);
+RealtimeDatabase Database;
 
 
-#define RST_PIN 0
-#define IRQ_PIN 1
+// variables to control the sending of data
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 10000; // 10 seconds in milliseconds
+bool Authorized = false; // Flag to check if the card is authorized
 
-Adafruit_PN532 nfc(RST_PIN, IRQ_PIN);
+// Variables to send to the Database
+int intValue = 0;
+float floatValue = 0.01;
+String stringValue = "";
 
+Adafruit_PN532 nfc(PN532_irq, PN532_reset);
 
-void setup() {
+void setup(){
   Serial.begin(115200);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-
-  Serial.println("Connected to WiFi!");
-
-  Serial.println("Hello!");
   nfc.begin();
+
   uint32_t versiondata = nfc.getFirmwareVersion();
-  if (! versiondata) {
+  if (!versiondata) {
     Serial.print("Didn't find PN53x board");
-    while (1); // halt
+    while (1);
   }
 
   // Got ok data, print it out!
   Serial.print("Found chip PN5"); 
-  Serial.println((versiondata>>24) & 0xFF, HEX);
+  Serial.print((versiondata>>24) & 0xFF, DEC);
   Serial.print("Firmware ver. "); 
   Serial.print((versiondata>>16) & 0xFF, DEC);
   Serial.print('.'); 
   Serial.println((versiondata>>8) & 0xFF, DEC);
-  Serial.println("Waiting for an ISO14443A Card ...");
+
+  // Connect to Wi-Fi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+
+  // Configure SSL client
+  ssl_client.setInsecure();
+  ssl_client.setTimeout(1000); // Set connection timeout
+  ssl_client.setBufferSizes(4096, 1024); // Set buffer sizes
+
+  // Initialize Firebase
+  initializeApp(aClient, app, getAuth(user_auth), processData, "🔐 authTask");
+  app.getApp<RealtimeDatabase>(Database);
+  Database.url(DATABASE_URL);
 }
 
-void loop() {
+void loop(){
+  // Maintain authentication and async tasks
+  app.loop();
+  Serial.printf("WiFi RSSI: %d dBm\n", WiFi.RSSI());
+
+  if (app.ready()){
   uint8_t success;
   uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
   uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
@@ -51,60 +99,36 @@ void loop() {
   success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
 
   if (success) {
-    Serial.println("Found an ISO14443A card");
-    Serial.print("  UID Length: ");
-    Serial.print(uidLength, DEC);
-    Serial.println(" bytes");
-    Serial.print("  UID Value: ");
-    nfc.PrintHex(uid, uidLength);
-    Serial.println("");
-
-    if (uidLength == 7)
-    {
-      uint8_t data[32];
-      Serial.println("Seems to be an NTAG2xx tag (7 byte UID)");
-
-      for (uint8_t i = 0; i < 42; i++)
-      {
-        success = nfc.ntag2xx_ReadPage(i, data);
-
-        // Display the current page number
-        Serial.print("PAGE ");
-        if (i < 10)
-        {
-          Serial.print("0");
-          Serial.print(i);
-        }
-        else
-        {
-          Serial.print(i);
-        }
-        Serial.print(": ");
-
-        // Display the results, depending on 'success'
-        if (success)
-        {
-          // Dump the page data
-          nfc.PrintHexChar(data, 4);
-        }
-        else
-        {
-          Serial.println("Unable to read the requested page!");
-        }
-      }
+    // Convert UID to hex string
+    String uidString = "";
+    for (uint8_t i = 0; i < uidLength; i++) {
+      if (uid[i] < 0x10) uidString += "0";
+      uidString += String(uid[i], HEX);
     }
-    else
-    {
-      Serial.println("This doesn't seem to be an NTAG203 tag (UUID length != 7 bytes)!");
+    
+    
+    Serial.print("Formatted UID: ");
+    Serial.println(uidString); // Debug output
+    
+    Database.set<String>(aClient, "/cards/authorized_card/" + uidString, uidString, processData);
+    delay(2000); // Delay to avoid flooding the database with requests
     }
-
-    // Wait a bit before trying again
-    Serial.println("\n\nSend a character to scan another tag!");
-    Serial.flush();
-    while (!Serial.available());
-    while (Serial.available()) {
-    Serial.read();
-    }
-    Serial.flush();
   }
+}
+
+void processData(AsyncResult &aResult){
+  if (!aResult.isResult())
+    return;
+
+  if (aResult.isEvent())
+    Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.eventLog().message().c_str(), aResult.eventLog().code());
+
+  if (aResult.isDebug())
+    Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
+
+  if (aResult.isError())
+    Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
+
+  if (aResult.available())
+    Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
 }
