@@ -1,7 +1,4 @@
 #include <Arduino.h>
-#include <Adafruit_PN532.h>
-#include <Wire.h>
-#include <SPI.h>
 #include <ESP8266WiFi.h>
 
 
