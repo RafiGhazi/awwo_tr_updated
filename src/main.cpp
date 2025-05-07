@@ -35,11 +35,6 @@ unsigned long lastSendTime = 0;
 const unsigned long sendInterval = 10000; // 10 seconds in milliseconds
 bool Authorized = false; // Flag to check if the card is authorized
 
-// Variables to send to the Database
-int intValue = 0;
-float floatValue = 0.01;
-String stringValue = "";
-
 Adafruit_PN532 nfc(PN532_irq, PN532_reset);
 
 void setup(){
@@ -88,12 +83,36 @@ void setup(){
 }
 
 void loop(){
-  if (Firebase.ready())
+  boolean success;
+  uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+  uint8_t uidLength;
+
+  success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
+
+  if (Firebase.ready() && success)
   {
+    Serial.println("Found an NFC card!");
+    Serial.print("UID Length: ");Serial.print(uidLength, DEC);Serial.println(" bytes");
+    Serial.print("UID Value: ");
+    for (uint8_t i=0; i < uidLength; i++) {
+      Serial.print(" 0x");Serial.print(uid[i], HEX);
+    }
+    Serial.println("");
+    Serial.println("Waiting for an NFC card...");
+
+    String cardID = "";
+    for (uint8_t i=0; i < uidLength; i++) {
+      cardID += String(uid[i], HEX);
+    }
+    Serial.print("Card ID: ");
+    Serial.println(cardID);
+
+    Firebase.RTDB.setString(&fbdo, "/test/cardID" + cardID, cardID);
+
     // Push an integer to a specific path
     int value = 42; // Your integer value
     Serial.printf("Push integer... %s\n", 
-      Firebase.RTDB.pushInt(&fbdo, "/test/integer", value) ? "ok" : fbdo.errorReason().c_str());
+    Firebase.RTDB.pushInt(&fbdo, "/test/integer", value) ? "ok" : fbdo.errorReason().c_str());
 
     // Alternatively, you can set an integer at a specific path
     Serial.printf("Set integer... %s\n", 
