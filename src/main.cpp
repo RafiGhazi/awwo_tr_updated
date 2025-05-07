@@ -5,12 +5,12 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <SPI.h>
-#include <ESP8266WiFi.h>
-#include <FirebaseESP8266.h>
+#include <Firebase_ESP_Client.h>
 #include <WiFiClientSecure.h>
 #include <Adafruit_PN532.h>
 #include <Ticker.h>
+#include <addons/TokenHelper.h>
+#include <addons/RTDBHelper.h>
 
 
 // Network and Firebase credentials
@@ -24,16 +24,10 @@
 
 #define PN532_irq 0
 #define PN532_reset -1
-
-void processData(AsyncResult &aResult);
-UserAuth user_auth(Web_API_KEY, USER_EMAIL, USER_PASS);
-
-// Firebase components
-FirebaseApp app;
-WiFiClientSecure ssl_client;
-using AsyncClient = AsyncClientClass;
-AsyncClient aClient(ssl_client);
-RealtimeDatabase Database;
+//firebase set
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
 
 // variables to control the sending of data
@@ -74,61 +68,39 @@ void setup(){
     delay(300);
   }
   Serial.println();
+  Serial.println("Connected to Wi-Fi");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
-  // Configure SSL client
-  ssl_client.setInsecure();
-  ssl_client.setTimeout(1000); // Set connection timeout
-  ssl_client.setBufferSizes(4096, 1024); // Set buffer sizes
+  Serial.printf("FIrebase client V%s\n\n", FIREBASE_CLIENT_VERSION);
 
-  // Initialize Firebase
-  initializeApp(aClient, app, getAuth(user_auth), processData, "🔐 authTask");
-  app.getApp<RealtimeDatabase>(Database);
-  Database.url(DATABASE_URL);
+  config.api_key = Web_API_KEY;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASS;
+
+  config.database_url = DATABASE_URL;
+  config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
+  Firebase.reconnectNetwork(true);
+
+  fbdo.setBSSLBufferSize(4096, 1024); // Set the buffer size for BSSL to 4096 bytes
+
+  Firebase.begin(&config, &auth);
 }
 
 void loop(){
-  // Maintain authentication and async tasks
-  app.loop();
-  Serial.printf("WiFi RSSI: %d dBm\n", WiFi.RSSI());
+  if (Firebase.ready())
+  {
+    // Push an integer to a specific path
+    int value = 42; // Your integer value
+    Serial.printf("Push integer... %s\n", 
+      Firebase.RTDB.pushInt(&fbdo, "/test/integer", value) ? "ok" : fbdo.errorReason().c_str());
 
-  if (app.ready()){
-  uint8_t success;
-  uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
-  uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+    // Alternatively, you can set an integer at a specific path
+    Serial.printf("Set integer... %s\n", 
+      Firebase.RTDB.setInt(&fbdo, "/test/set/integer", value) ? "ok" : fbdo.errorReason().c_str());
 
-  success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
-
-  if (success) {
-    // Convert UID to hex string
-    String uidString = "";
-    for (uint8_t i = 0; i < uidLength; i++) {
-      if (uid[i] < 0x10) uidString += "0";
-      uidString += String(uid[i], HEX);
-    }
-    
-    
-    Serial.print("Formatted UID: ");
-    Serial.println(uidString); // Debug output
-    
-    Database.set<String>(aClient, "/cards/authorized_card/" + uidString, uidString, processData);
-    delay(2000); // Delay to avoid flooding the database with requests
-    }
+    // Get the pushed integer back
+    Serial.printf("Get pushed integer... %s\n", 
+      Firebase.RTDB.getInt(&fbdo, "/test/integer/" + fbdo.pushName()) ? String(fbdo.to<int>()).c_str() : fbdo.errorReason().c_str());
   }
-}
-
-void processData(AsyncResult &aResult){
-  if (!aResult.isResult())
-    return;
-
-  if (aResult.isEvent())
-    Firebase.printf("Event task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.eventLog().message().c_str(), aResult.eventLog().code());
-
-  if (aResult.isDebug())
-    Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
-
-  if (aResult.isError())
-    Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
-
-  if (aResult.available())
-    Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
 }
