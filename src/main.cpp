@@ -11,11 +11,17 @@
 #define WIFI_SSID "Ghajoy"
 #define WIFI_PASSWORD "ghajoy2327"
 
+
+//Firebase Credential for login authentication and API to the Firebase Database
 #define Web_API_KEY "AIzaSyCiZ0bpKHxDFmzquUa6VuzHXn5uAlrFHVo"
 #define DATABASE_URL "https://iot-doorlock-65509-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define USER_EMAIL "test@test.com"
 #define USER_PASS "test123"
 
+
+// Required for initializing PN532 NFC Modules. when defined just write the unused pins/random integer number it doesnt really  taking any effect since we are using an I2C configuration
+// that you guys could switch the configuration with the dip switch that are on pn532 modules. pn532 modules have 3 communication protocols, SPI, I2C and UART. in this project i will use i2c configuration.
+// and dont bother to connect the IRQ and REESET PIN to the ESP32/ESP8266. just leave it unconnected. idk with the SPI or UART configuration, never try it but i think it will be the same.
 #define PN532_irq 0
 #define PN532_reset -1
 
@@ -25,15 +31,16 @@ FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-// NFC reader
+// Initialize PN532 NFC reader
 Adafruit_PN532 nfc(PN532_irq, PN532_reset);
+
 
 // Variables
 bool Authorized = false;
 const String authorizedCardsPath = "/authorized_cards";
 const int relayPin = 13; // Pin for relay control
 
-// Function declarations
+// Declaring functions
 void checkCardAuthorization(String cardID);
 void logAccessAttempt(String cardID, bool authorized);
 
@@ -77,6 +84,8 @@ void setup() {
 }
 
 void loop() {
+  //making an buffer for the uid
+  // uid is the unique id of the card, uidLength is the length of the uid
   uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
   uint8_t uidLength;
   
@@ -94,6 +103,7 @@ void loop() {
     checkCardAuthorization(cardID);
     
     // Small delay before next scan
+    // preventing multiple scans of the same card
     delay(1000);
   }
 }
