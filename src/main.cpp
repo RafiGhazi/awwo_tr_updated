@@ -8,8 +8,11 @@
 #include <addons/RTDBHelper.h>
 
 // Network and Firebase credentials
-#define WIFI_SSID "Ghajoy"
-#define WIFI_PASSWORD "ghajoy2327"
+// #define WIFI_SSID "Ghajoy"
+// #define WIFI_PASSWORD "ghajoy2327"
+
+#define WIFI_SSID "MSI_4632"
+#define WIFI_PASSWORD "babikloitu"
 
 
 //Firebase Credential for login authentication and API to the Firebase Database
@@ -19,8 +22,8 @@
 #define USER_PASS "test123"
 
 
-// Required for initializing PN532 NFC Modules. when defined just write the unused pins/random integer number it doesnt really  taking any effect since we are using an I2C configuration
-// that you guys could switch the configuration with the dip switch that are on pn532 modules. pn532 modules have 3 communication protocols, SPI, I2C and UART. in this project i will use i2c configuration.
+// Required for initializing PN532 NFC Modules. when defined just write the unused pins/random integer number it doesnt really taking any effect since we are using an I2C configuration
+// that we could switch the configuration with the dip switch that are on pn532 modules. pn532 modules have 3 communication protocols, SPI, I2C and UART. in this project we will use i2c configuration.
 // and dont bother to connect the IRQ and REESET PIN to the ESP32/ESP8266. just leave it unconnected. idk with the SPI or UART configuration, never try it but i think it will be the same.
 #define PN532_irq 0
 #define PN532_reset -1
@@ -39,6 +42,11 @@ Adafruit_PN532 nfc(PN532_irq, PN532_reset);
 bool Authorized = false;
 const String authorizedCardsPath = "/authorized_cards";
 const int relayPin = 13; // Pin for relay control
+const int Red = 0; // Pin for red LED
+const int Green = 2; // Pin for green LED
+bool Relaystatus = false; // Variable to store relay status
+
+
 
 // Declaring functions
 void checkCardAuthorization(String cardID);
@@ -106,6 +114,13 @@ void loop() {
     // preventing multiple scans of the same card
     delay(1000);
   }
+
+
+  //check if the relay status is on or off and if the relay is true than open the relay and close it after that 
+  if (Firebase.ready()) {
+    Firebase.RTDB.setBool(&fbdo, "/door_status/", Authorized);
+  }
+    
 }
 
 void checkCardAuthorization(String cardID) {
